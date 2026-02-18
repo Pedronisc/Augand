@@ -14,12 +14,13 @@
         .nexus-card:hover { transform: translateY(-5px); border-color: rgba(245, 158, 11, 0.5); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden selection:bg-amber-900/30">
+<!-- Removido 'overflow-hidden' e adicionado 'overflow-x-hidden' para permitir scroll vertical -->
+<body class="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-x-hidden selection:bg-amber-900/30">
     
-    <!-- Fundo Texturizado -->
-    <div class="absolute inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
+    <!-- Fundo Texturizado (Mudado para fixed para ficar fixo enquanto rola) -->
+    <div class="fixed inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
 
-    <main class="relative z-10 w-full max-w-4xl text-center space-y-16">
+    <main class="relative z-10 w-full max-w-4xl text-center space-y-16 py-10">
         
         <!-- Cabeçalho -->
         <div class="space-y-4 animate-fade-in-down">
@@ -73,7 +74,7 @@
 
         </div>
 
-        <footer class="text-[10px] text-stone-700 uppercase tracking-[0.2em] font-bold opacity-60 pt-10">
+        <footer class="text-[10px] text-stone-700 uppercase tracking-[0.2em] font-bold opacity-60 pt-10 pb-6">
             Sistema Nexus de Navegação
         </footer>
     </main>
