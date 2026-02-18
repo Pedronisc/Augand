@@ -57,7 +57,6 @@
             transform-origin: center;
             opacity: 0;
             transition: opacity 0.8s ease;
-            /* Dimensões nativas de 11k pixels */
             width: 11520px; 
             height: 5670px;
             will-change: transform;
@@ -131,10 +130,18 @@
             margin-top: 1px;
         }
 
-        #recenter-btn {
+        /* Botões Flutuantes à Esquerda */
+        .controls-left {
             position: fixed;
             left: 24px;
             bottom: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 40;
+        }
+
+        .nexus-btn {
             width: 52px;
             height: 52px;
             background: var(--nexus-card);
@@ -145,15 +152,38 @@
             justify-content: center;
             cursor: pointer;
             color: var(--nexus-amber);
-            z-index: 40;
             box-shadow: 0 10px 25px rgba(0,0,0,0.6);
             transition: all 0.3s ease;
+            position: relative;
         }
 
-        #recenter-btn:hover {
+        .nexus-btn:hover {
             transform: scale(1.08);
             border-color: var(--nexus-amber);
             color: #fff;
+        }
+
+        .nexus-btn .label {
+            position: absolute;
+            left: 64px;
+            background: var(--nexus-card);
+            border: 1px solid var(--nexus-border);
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s;
+            transform: translateX(-10px);
+        }
+
+        .nexus-btn:hover .label {
+            opacity: 1;
+            transform: translateX(0);
         }
 
         /* Modal Info */
@@ -269,7 +299,7 @@
 
     <div id="overlay" class="overlay" onclick="closeInfo()"></div>
 
-    <!-- Header Nexus - Meio Termo e Sempre Aceso -->
+    <!-- Header Nexus -->
     <header class="fixed top-0 left-0 w-full p-8 pointer-events-none z-10">
         <div class="pointer-events-auto bg-black/70 backdrop-blur-lg p-5 border-l-2 border-amber-600/80 rounded-xl shadow-2xl inline-block cursor-pointer group" onclick="showInfo('augand')">
             <h1 class="medieval-font text-3xl font-bold text-amber-500 tracking-tight group-hover:text-amber-400 transition-colors uppercase">Augand</h1>
@@ -277,9 +307,20 @@
         </div>
     </header>
 
-    <button id="recenter-btn" title="Recalibrar Foco" onclick="recenterMap()">
-        <i data-lucide="compass" width="22" height="22"></i>
-    </button>
+    <!-- Controles Flutuantes -->
+    <div class="controls-left">
+        <!-- Toggle Mapa Biomas/Político -->
+        <button id="map-toggle-btn" class="nexus-btn" title="Alternar Visualização" onclick="toggleMapMode()">
+            <i id="toggle-icon-map" data-lucide="layers" width="22" height="22"></i>
+            <span id="toggle-label" class="label text-stone-300">Modo Biomas</span>
+        </button>
+        
+        <!-- Recalibrar Foco -->
+        <button id="recenter-btn" class="nexus-btn" title="Recalibrar Foco" onclick="recenterMap()">
+            <i data-lucide="compass" width="22" height="22"></i>
+            <span class="label text-stone-300">Recalibrar Foco</span>
+        </button>
+    </div>
 
     <aside id="sidebar" class="shadow-2xl">
         <div id="sidebar-toggle" onclick="toggleSidebar()">
@@ -287,7 +328,7 @@
                 <i data-lucide="scroll" width="18" height="18"></i>
                 <span>Resumo</span>
             </div>
-            <i id="toggle-icon" data-lucide="chevron-left" width="16" height="16"></i>
+            <i id="toggle-icon-sidebar" data-lucide="chevron-left" width="16" height="16"></i>
         </div>
         <div class="p-8 h-full overflow-y-auto flex flex-col">
             <div class="flex items-center gap-3 mb-8 border-b border-stone-800/50 pb-4">
@@ -302,18 +343,17 @@
                 </li>
             </ul>
             <footer class="mt-8 pt-4 border-t border-stone-900 text-[8px] text-stone-700 uppercase tracking-widest font-bold">
-                Nexus v2.5.2
+                Nexus v2.6.0
             </footer>
         </div>
     </aside>
 
     <div class="map-container" id="map-viewport">
         <div id="map-wrapper">
-            <img src="mapa_augand.png" 
+            <img src="https://lh3.googleusercontent.com/u/0/d/1ONaVbRjswIXcjvwRyDXmt95W9EN6JhQA=w4096" 
                  id="world-map" 
                  alt="Nexus Map" 
                  draggable="false"
-                 onerror="this.src='https://lh3.googleusercontent.com/u/0/d/1ONaVbRjswIXcjvwRyDXmt95W9EN6JhQA=w4096'"
                  onload="startMap()">
         </div>
     </div>
@@ -336,6 +376,13 @@
     </div>
 
     <script>
+        const maps = {
+            political: "https://lh3.googleusercontent.com/u/0/d/1ONaVbRjswIXcjvwRyDXmt95W9EN6JhQA=w4096",
+            biome: "https://lh3.googleusercontent.com/u/0/d/1VxYugi7c7cPidVuuCQNq1sRHJMqD8DxG=w4096"
+        };
+        
+        let currentMapMode = 'political';
+
         const specialNames = [
             "Totum", "Nihilum", "Deuses Primordiais", "Verion", "Umbra", "Vastus", "Aion", "Anima", "Santos",
             "São Valerius", "Santa Lyra", "Santa Límia", "São Argos", "Santa Arquídea", "São Kael", "São Dante",
@@ -369,6 +416,7 @@
         const wrapper = document.getElementById('map-wrapper');
         const viewport = document.getElementById('map-viewport');
         const sidebar = document.getElementById('sidebar');
+        const worldMap = document.getElementById('world-map');
         const progressBar = document.getElementById('progress-bar');
         const progressPercent = document.getElementById('progress-percent');
         
@@ -417,7 +465,6 @@
         function calculateInitialScale() {
             const winW = window.innerWidth;
             const winH = window.innerHeight;
-            // AJUSTE: Math.min garante que o mapa inteiro (contain) fique visível sem cortes laterais
             initialScale = Math.min(winW / 11520, winH / 5670);
         }
 
@@ -425,9 +472,29 @@
 
         function toggleSidebar() {
             sidebar.classList.toggle('open');
-            const icon = document.getElementById('toggle-icon');
+            const icon = document.getElementById('toggle-icon-sidebar');
             const isOpen = sidebar.classList.contains('open');
             icon.setAttribute('data-lucide', isOpen ? 'chevron-right' : 'chevron-left');
+            lucide.createIcons();
+        }
+
+        // Nova função para alternar modos de mapa
+        function toggleMapMode() {
+            const img = document.getElementById('world-map');
+            const icon = document.getElementById('toggle-icon-map');
+            const label = document.getElementById('toggle-label');
+            
+            if (currentMapMode === 'political') {
+                currentMapMode = 'biome';
+                img.src = maps.biome;
+                icon.setAttribute('data-lucide', 'image');
+                label.innerText = "Modo Político";
+            } else {
+                currentMapMode = 'political';
+                img.src = maps.political;
+                icon.setAttribute('data-lucide', 'layers');
+                label.innerText = "Modo Biomas";
+            }
             lucide.createIcons();
         }
 
