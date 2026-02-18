@@ -299,8 +299,15 @@
 
     <div id="overlay" class="overlay" onclick="closeInfo()"></div>
 
-    <!-- Header Nexus -->
-    <header class="fixed top-0 left-0 w-full p-8 pointer-events-none z-10">
+    <!-- Header Nexus com Botão de Retorno -->
+    <header class="fixed top-0 left-0 w-full p-8 pointer-events-none z-10 flex flex-col items-start gap-4">
+        <!-- Botão Retornar ao Menu Principal -->
+        <a href="index.html" class="pointer-events-auto flex items-center gap-3 bg-black/70 backdrop-blur-lg px-4 py-2 border border-amber-900/30 rounded-lg text-amber-600 hover:text-amber-400 hover:border-amber-600/50 transition-all shadow-xl group">
+            <i data-lucide="arrow-left" width="16" height="16"></i>
+            <span class="medieval-font text-[10px] font-bold uppercase tracking-widest">Menu Principal</span>
+        </a>
+
+        <!-- Bloco de Título Principal -->
         <div class="pointer-events-auto bg-black/70 backdrop-blur-lg p-5 border-l-2 border-amber-600/80 rounded-xl shadow-2xl inline-block cursor-pointer group" onclick="showInfo('augand')">
             <h1 class="medieval-font text-3xl font-bold text-amber-500 tracking-tight group-hover:text-amber-400 transition-colors uppercase">Augand</h1>
             <p class="text-[9px] text-stone-400 uppercase tracking-[0.4em] mt-1.5 font-bold pulse-text">Arquivo Central da Criação</p>
@@ -416,7 +423,6 @@
         const wrapper = document.getElementById('map-wrapper');
         const viewport = document.getElementById('map-viewport');
         const sidebar = document.getElementById('sidebar');
-        const worldMap = document.getElementById('world-map');
         const progressBar = document.getElementById('progress-bar');
         const progressPercent = document.getElementById('progress-percent');
         
@@ -478,7 +484,6 @@
             lucide.createIcons();
         }
 
-        // Nova função para alternar modos de mapa
         function toggleMapMode() {
             const img = document.getElementById('world-map');
             const icon = document.getElementById('toggle-icon-map');
