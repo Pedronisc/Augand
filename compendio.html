@@ -19,13 +19,16 @@
         .animate-in { animation: fadeIn 0.5s ease-out forwards; }
     </style>
 
-    <!-- Importmap para carregar React e Lucide direto do navegador -->
+    <!-- Importmap para carregar React, Lucide e Firebase direto do navegador -->
     <script type="importmap">
     {
         "imports": {
             "react": "https://esm.sh/react@18.2.0",
             "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+            "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+            "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
         }
     }
     </script>
@@ -51,6 +54,45 @@
             GripVertical, BookOpen, PenTool, Map, Menu,
             History, Crosshair, ArrowLeft
         } from 'lucide-react';
+        
+        // --- IMPORTS DO FIREBASE ---
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+        import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+
+        // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
+        let app, auth, db;
+        let isFirebaseAvailable = false;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nexus-compendium-app';
+
+        try {
+            let firebaseConfig;
+            // Se estiver no ambiente de testes inteligente
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isFirebaseAvailable = true;
+            } else {
+                // SUA CONFIGURAÇÃO DO FIREBASE (PASSO 5)
+                firebaseConfig = {
+                    apiKey: "AIzaSyCfmsS0wFJ0T0IZS6bgMCapwP2oJ8-vq8Y",
+                    authDomain: "codex-nexus-24887.firebaseapp.com",
+                    projectId: "codex-nexus-24887",
+                    storageBucket: "codex-nexus-24887.firebasestorage.app",
+                    messagingSenderId: "672063268094",
+                    appId: "1:672063268094:web:124229791dee02640b71af"
+                };
+                
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isFirebaseAvailable = true;
+            }
+        } catch(e) {
+            console.error("Erro ao inicializar o banco de dados.", e);
+        }
 
         const App = () => {
             const [activeTab, setActiveTab] = useState('divindades');
@@ -59,12 +101,19 @@
             const [masterPassInput, setMasterPassInput] = useState('');
             const [statusMessage, setStatusMessage] = useState({ text: '', type: '' });
             const [isMasterMode, setIsMasterMode] = useState(false);
+            
+            // Estados para o Sistema de Contas/Saves
+            const [user, setUser] = useState(null);
+            const [playerName, setPlayerName] = useState('');
+            const [isProfileActive, setIsProfileActive] = useState(false);
+            const [syncStatus, setSyncStatus] = useState('');
+            
             const inputRef = useRef(null);
 
             const MASTER_PASSWORD = "022330";
 
             const senhas = {
-                'totum': 'TOTUM', 'nihilum': 'NIHILUM', 'solari': 'SOLARI', 'valerius': 'VALERIUS',
+                'totum': 'TOTUM', 'nihilum': 'NIHILUM', 'verion': 'VERION', 'valerius': 'VALERIUS',
                 'lyra': 'LYRA', 'umbra': 'UMBRA', 'limia': 'LIMIA', 'argos': 'ARGOS',
                 'vastus': 'VASTUS', 'arquidea': 'ARQUIDEA', 'kael': 'KAEL', 'aion': 'AION',
                 'dante': 'DANTE', 'moira': 'MOIRA', 'anima': 'ANIMA', 'benedict': 'BENEDICT',
@@ -72,6 +121,69 @@
                 'nocturnus': 'NOCTURNUS', 'phobos': 'PHOBOS', 'lethar': 'LETHAR', 'abraxas': 'ABRAXAS',
                 'zelus': 'ZELUS', 'mammon': 'MAMMON', 'eon': 'EON', 'sopor': 'SOPOR',
                 'carnis': 'CARNIS', 'behemoth': 'BEHEMOTH', 'irus': 'IRUS', 'vorax': 'VORAX'
+            };
+
+            // Efeito para Inicializar a Autenticação do Jogador (Invisível)
+            useEffect(() => {
+                if (!isFirebaseAvailable) return;
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth error:", err);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            // Função para Carregar ou Criar o Registro do Jogador
+            const loadProfile = async () => {
+                const cleanName = playerName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                
+                if (!cleanName) {
+                    setStatusMessage({ text: 'Nome inválido. Use letras.', type: 'error' });
+                    setTimeout(() => setStatusMessage({ text: '', type: '' }), 3000);
+                    return;
+                }
+                if (!isFirebaseAvailable || !user) {
+                    setStatusMessage({ text: 'Banco offline. Salvamento indisponível.', type: 'error' });
+                    setTimeout(() => setStatusMessage({ text: '', type: '' }), 3000);
+                    return;
+                }
+
+                try {
+                    setSyncStatus('Lendo...');
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inquisidores', cleanName);
+                    const docSnap = await getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.unlocked) {
+                            // Mescla o que já foi liberado nesta sessão com o que estava salvo
+                            const mergedSet = new Set([...unlocked, ...data.unlocked]);
+                            setUnlocked(mergedSet);
+                            // Atualiza o banco com a fusão
+                            await setDoc(docRef, { unlocked: Array.from(mergedSet) }, { merge: true });
+                        }
+                        setStatusMessage({ text: 'Conhecimento recuperado.', type: 'success' });
+                    } else {
+                        await setDoc(docRef, { unlocked: Array.from(unlocked), createdAt: new Date().toISOString() });
+                        setStatusMessage({ text: 'Novo Registro no Codex.', type: 'success' });
+                    }
+                    setIsProfileActive(true);
+                    setSyncStatus('');
+                } catch(e) {
+                    console.error("Erro ao conectar:", e);
+                    setStatusMessage({ text: 'Falha de comunicação.', type: 'error' });
+                    setSyncStatus('');
+                }
+                setTimeout(() => setStatusMessage({ text: '', type: '' }), 3000);
             };
 
             const redactText = (text) => {
@@ -123,7 +235,7 @@
                 {
                     id: 'pilar_verdade', dominio: 'VERDADE', oposicao: 'Realidade vs Ilusão',
                     deus: {
-                    id: 'solari', nome: 'VERION', vulgo: 'A Luz', alin: 'LG', dominios: ['Luz', 'Ordem'], frase: 'A verdade que queima as sombras da dúvida.',
+                    id: 'verion', nome: 'VERION', vulgo: 'A Luz', alin: 'LG', dominios: ['Luz', 'Ordem'], frase: 'A verdade que queima as sombras da dúvida.',
                     nomes: ['Aurelion Verax', 'Lux Primata'], Icon: Sun, color: 'from-amber-200 to-yellow-500',
                     historia: 'O primeiro fragmento a se separar de Totum para iluminar o vazio. Verion viu a verdade do universo no nascimento e jurou que nada jamais seria oculto novamente.',
                     motivacao: 'Eliminar a ignorância e a mentira. Ele acredita que a dor da verdade é preferível ao conforto da ilusão.',
@@ -258,28 +370,41 @@
                 ]
             };
 
-            const handleGlobalUnlock = () => {
+            const handleGlobalUnlock = async () => {
                 const rawInput = passwordInput.trim().toUpperCase();
                 if (!rawInput) return;
                 const tokens = rawInput.split(';').map(t => t.trim()).filter(t => t !== '');
                 let revealedCount = 0;
                 const newUnlocked = new Set(unlocked);
+                
                 tokens.forEach(token => {
-                const entry = Object.entries(senhas).find(([id, pass]) => pass === token);
-                if (entry) {
-                    const [id] = entry;
-                    if (!newUnlocked.has(id)) {
-                    newUnlocked.add(id);
-                    revealedCount++;
+                    const entry = Object.entries(senhas).find(([id, pass]) => pass === token);
+                    if (entry) {
+                        const [id] = entry;
+                        if (!newUnlocked.has(id)) {
+                            newUnlocked.add(id);
+                            revealedCount++;
+                        }
                     }
-                }
                 });
+                
                 if (revealedCount > 0) {
-                setUnlocked(newUnlocked);
-                setStatusMessage({ text: `${revealedCount} essências sintonizadas.`, type: 'success' });
-                setPasswordInput('');
+                    setUnlocked(newUnlocked);
+                    setStatusMessage({ text: `${revealedCount} essências sintonizadas.`, type: 'success' });
+                    setPasswordInput('');
+
+                    // SE O USUÁRIO ESTIVER COM PERFIL CARREGADO, SALVA AUTOMATICAMENTE
+                    if (isProfileActive && isFirebaseAvailable && user) {
+                        try {
+                            const cleanName = playerName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'inquisidores', cleanName);
+                            await setDoc(docRef, { unlocked: Array.from(newUnlocked) }, { merge: true });
+                        } catch(e) {
+                            console.error("Erro ao salvar progresso:", e);
+                        }
+                    }
                 } else {
-                setStatusMessage({ text: 'Invocação falhou.', type: 'error' });
+                    setStatusMessage({ text: 'Invocação falhou.', type: 'error' });
                 }
                 setTimeout(() => setStatusMessage({ text: '', type: '' }), 3000);
             };
@@ -315,7 +440,7 @@
 
                 <div className="w-full max-w-7xl mx-auto px-4 py-4 sm:px-6 md:p-8 space-y-6 relative z-10">
                     
-                    {/* Master Access */}
+                    {/* Top Bar: Botão Home & Master Access */}
                     <div className="flex justify-between items-start">
                          <a href="index.html" className="flex items-center gap-2 text-stone-500 hover:text-amber-500 transition-colors group">
                             <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform"/>
@@ -339,55 +464,82 @@
                     </div>
 
                     <header className="text-center space-y-4 md:space-y-6">
-                    <div className="space-y-2">
-                        <div className="flex justify-center mb-1 opacity-20"><GripVertical size={16}/></div>
-                        <h1 className="text-xl sm:text-3xl md:text-4xl font-black tracking-[0.2em] text-stone-100 uppercase italic leading-none drop-shadow-2xl">Seres Superiores</h1>
-                        <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.8em] text-amber-600/60">Grimório das Divindades</p>
-                    </div>
-
-                    <div className="max-w-xl mx-auto space-y-4">
-                        <div className="relative">
-                        <input 
-                            ref={inputRef}
-                            type="text"
-                            value={passwordInput}
-                            onChange={(e) => setPasswordInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleGlobalUnlock()}
-                            placeholder="PROFERIR NOMES..."
-                            className="w-full bg-stone-900/20 border-b-2 border-stone-800 p-4 pr-16 text-amber-500 font-bold tracking-[0.2em] text-center focus:border-amber-700 outline-none uppercase transition-all shadow-inner text-xs italic"
-                        />
-                        <button onClick={handleGlobalUnlock} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-stone-600 hover:text-amber-500 transition-colors">
-                            <Send size={16} />
-                        </button>
+                        <div className="space-y-2">
+                            <div className="flex justify-center mb-1 opacity-20"><GripVertical size={16}/></div>
+                            <h1 className="text-xl sm:text-3xl md:text-4xl font-black tracking-[0.2em] text-stone-100 uppercase italic leading-none drop-shadow-2xl">Seres Superiores</h1>
+                            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.8em] text-amber-600/60">Compêndio das Divindades</p>
                         </div>
-                        <div className="h-4 flex justify-center items-center">
-                        {statusMessage.text && (
-                            <div className={`text-[10px] font-black uppercase tracking-widest animate-in fade-in duration-300 px-4 py-1 rounded bg-stone-900 border border-stone-800 ${statusMessage.type === 'success' ? 'text-amber-500' : 'text-red-500'}`}>
-                            {statusMessage.text}
+
+                        <div className="max-w-xl mx-auto space-y-4">
+                            
+                            {/* NOVA BARRA: SALVAMENTO DE PERFIL */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-stone-900/40 p-3 rounded border border-stone-800 shadow-inner">
+                                <div className="flex items-center gap-3 w-full">
+                                    <User size={16} className="text-stone-500 shrink-0" />
+                                    <input 
+                                        type="text" 
+                                        value={playerName}
+                                        onChange={(e) => setPlayerName(e.target.value)}
+                                        disabled={isProfileActive}
+                                        placeholder="SEU NOME (PARA SALVAR REGISTRO)..."
+                                        className="bg-transparent border-b border-stone-700 p-1 text-stone-300 text-[10px] font-black uppercase tracking-[0.1em] focus:border-amber-700 outline-none w-full disabled:opacity-50"
+                                    />
+                                </div>
+                                {!isProfileActive ? (
+                                    <button onClick={loadProfile} className="px-4 py-2 bg-stone-800 text-amber-500 text-[9px] font-black uppercase tracking-widest hover:bg-stone-700 transition-colors rounded shrink-0 whitespace-nowrap">
+                                        {syncStatus || 'Sintonizar Registro'}
+                                    </button>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-amber-600 text-[9px] font-black uppercase tracking-widest px-4 py-2 border border-amber-900/30 rounded bg-amber-950/20 shrink-0">
+                                        <CheckCircle2 size={12} /> Sincronizado
+                                    </div>
+                                )}
                             </div>
-                        )}
-                        </div>
-                    </div>
 
-                    <nav className="inline-flex flex-wrap justify-center gap-1 p-1 bg-stone-900/40 rounded-sm border border-stone-800 shadow-2xl">
-                        {[
-                        { id: 'divindades', label: 'A Ordem', icon: Sun },
-                        { id: 'abismo', label: 'O Abismo', icon: Skull },
-                        { id: 'panteao', label: 'Panteão', icon: Swords },
-                        { id: 'tabela', label: 'Tabela', icon: Scroll },
-                        { id: 'compendio', label: 'Compêndio', icon: Book }
-                        ].map(tab => (
-                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 rounded-sm text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === tab.id ? 'bg-amber-950/30 text-amber-500 border border-amber-900/40' : 'text-stone-600 hover:text-stone-400'}`}>
-                            <tab.icon size={12} /> {tab.label}
-                        </button>
-                        ))}
-                    </nav>
+                            {/* Barra de Senhas Antiga */}
+                            <div className="relative">
+                                <input 
+                                    ref={inputRef}
+                                    type="text"
+                                    value={passwordInput}
+                                    onChange={(e) => setPasswordInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleGlobalUnlock()}
+                                    placeholder="PROFERIR NOMES..."
+                                    className="w-full bg-stone-900/20 border-b-2 border-stone-800 p-4 pr-16 text-amber-500 font-bold tracking-[0.2em] text-center focus:border-amber-700 outline-none uppercase transition-all shadow-inner text-xs italic"
+                                />
+                                <button onClick={handleGlobalUnlock} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-stone-600 hover:text-amber-500 transition-colors">
+                                    <Send size={16} />
+                                </button>
+                            </div>
+
+                            <div className="h-4 flex justify-center items-center">
+                            {statusMessage.text && (
+                                <div className={`text-[10px] font-black uppercase tracking-widest animate-in fade-in duration-300 px-4 py-1 rounded bg-stone-900 border border-stone-800 ${statusMessage.type === 'success' ? 'text-amber-500' : 'text-red-500'}`}>
+                                {statusMessage.text}
+                                </div>
+                            )}
+                            </div>
+                        </div>
+
+                        <nav className="inline-flex flex-wrap justify-center gap-1 p-1 bg-stone-900/40 rounded-sm border border-stone-800 shadow-2xl">
+                            {[
+                            { id: 'divindades', label: 'A Ordem', icon: Sun },
+                            { id: 'abismo', label: 'O Abismo', icon: Skull },
+                            { id: 'panteao', label: 'Panteão', icon: Swords },
+                            { id: 'tabela', label: 'Tabela', icon: Scroll },
+                            { id: 'compendio', label: 'Compêndio', icon: Book }
+                            ].map(tab => (
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 rounded-sm text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === tab.id ? 'bg-amber-950/30 text-amber-500 border border-amber-900/40' : 'text-stone-600 hover:text-stone-400'}`}>
+                                <tab.icon size={12} /> {tab.label}
+                            </button>
+                            ))}
+                        </nav>
                     </header>
 
                     <main className="w-full min-h-[400px] pb-10">
                     
                     {activeTab === 'divindades' && (
-                        <div className="space-y-12 animate-in fade-in">
+                        <div className="space-y-12 animate-in fade-in max-w-4xl mx-auto">
                         <div className="max-w-3xl mx-auto text-center">
                             {isUnlocked('totum') ? (
                             <div className="p-8 md:p-12 rounded-sm bg-[#0d0c0b] border-2 border-amber-900/20 relative shadow-2xl text-center outline outline-1 outline-amber-900/10 outline-offset-4">
@@ -407,25 +559,29 @@
                             {panteao.pilares.map(pilar => {
                             const DeusIcon = pilar.deus.Icon;
                             return (
-                            <div key={`pilar-order-${pilar.id}`} className="bg-stone-900/10 border border-stone-800 rounded-sm p-6 md:p-10 shadow-2xl border-l-2 border-amber-900/30 relative text-center">
+                            <div key={`pilar-order-${pilar.id}`} className="bg-stone-950/40 border border-stone-800 rounded-sm p-8 md:p-14 shadow-2xl border-l-2 border-amber-900/30 relative text-left">
                                 {isUnlocked(pilar.deus.id) ? (
-                                <div className="flex flex-col items-center gap-6 mb-8">
-                                    <div className="p-4 bg-stone-900 border border-amber-900/40 text-amber-500 rounded-full"><DeusIcon size={24} /></div>
+                                <div className="flex flex-col md:flex-row gap-6 items-start mb-8 border-b border-stone-800 pb-8">
+                                    <div className="p-4 bg-stone-900 border border-amber-900/40 text-amber-500 rounded-full shrink-0"><DeusIcon size={24} /></div>
                                     <div className="space-y-2">
-                                    <h3 className="text-2xl md:text-3xl font-black text-stone-100 italic leading-none">{pilar.deus.nome}</h3>
+                                    <h3 className="text-3xl md:text-4xl font-black text-stone-100 italic leading-none">{pilar.deus.nome}</h3>
                                     <p className="text-amber-600/80 text-sm italic">"{redactText(pilar.deus.frase)}"</p>
+                                    <div className="text-[10px] uppercase font-black tracking-widest text-stone-600 mt-2">{pilar.deus.vulgo}</div>
                                     </div>
                                 </div>
                                 ) : renderLocked(pilar.deus.id)}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 {pilar.deus.santos.map(s => isUnlocked(s.id) ? (
-                                    <div key={s.id} className="p-4 bg-stone-900/20 rounded border border-stone-800 text-center hover:border-amber-900/30 transition-colors">
-                                    <h4 className="text-amber-500 font-bold text-sm uppercase mb-1">{s.nome}</h4>
-                                    <p className="text-[9px] text-stone-500 uppercase tracking-widest mb-2 font-bold">{s.titulo}</p>
-                                    <p className="text-xs text-stone-400 italic mb-3">"{redactText(s.frase)}"</p>
+                                    <div key={s.id} className="p-6 bg-stone-900/20 rounded border border-stone-800 hover:border-amber-900/30 transition-colors">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h4 className="text-amber-500 font-bold text-sm uppercase">{s.nome}</h4>
+                                        <span className="text-[8px] border border-stone-800 px-1.5 py-0.5 rounded text-stone-500">{s.alin}</span>
+                                    </div>
+                                    <p className="text-[9px] text-stone-500 uppercase tracking-widest mb-3 font-bold">{s.titulo}</p>
+                                    <p className="text-xs text-stone-400 italic mb-4 border-l border-amber-900/20 pl-2">"{redactText(s.frase)}"</p>
                                     <div className="text-[9px] text-stone-600 uppercase font-black space-y-1">
-                                        <p>Padroeiro: {s.padroeiro}</p>
+                                        <p className="flex items-center gap-1"><Menu size={10}/> Padroado: {s.padroeiro}</p>
                                     </div>
                                     </div>
                                 ) : renderLocked(s.id, true))}
@@ -437,7 +593,7 @@
                     )}
 
                     {activeTab === 'abismo' && (
-                        <div className="space-y-12 animate-in fade-in">
+                        <div className="space-y-12 animate-in fade-in max-w-4xl mx-auto">
                         <div className="max-w-3xl mx-auto text-center">
                             {isUnlocked('nihilum') ? (
                             <div className="p-8 md:p-12 rounded-sm bg-black border-2 border-red-500/30 relative shadow-2xl text-center outline outline-1 outline-red-500/10 outline-offset-4">
@@ -453,28 +609,31 @@
                             </div>
                             ) : renderLocked('nihilum')}
                         </div>
-                        <div className="grid grid-cols-1 gap-12 text-center">
+                        <div className="grid grid-cols-1 gap-12 text-right">
                             {panteao.pilares.map(pilar => {
                             const ReiIcon = pilar.rei.Icon;
                             return (
-                            <div key={`pilar-abyss-${pilar.id}`} className="bg-stone-950/20 border border-stone-900 rounded-sm p-6 md:p-10 shadow-2xl border-r-2 border-red-500/40 relative text-center">
+                            <div key={`pilar-abyss-${pilar.id}`} className="bg-stone-950/40 border border-stone-900 rounded-sm p-8 md:p-14 shadow-2xl border-r-2 border-red-500/40 relative">
                                 {isUnlocked(pilar.rei.id) ? (
-                                <div className="flex flex-col items-center gap-6 mb-8">
-                                    <div className="p-4 bg-black border border-red-500/30 text-red-500 rounded-full"><ReiIcon size={24} /></div>
-                                    <div className="space-y-2">
-                                    <h3 className="text-2xl md:text-3xl font-black text-red-500 italic leading-none">{pilar.rei.nome}</h3>
-                                    <p className="text-red-400/70 text-sm italic">"{redactText(pilar.rei.frase)}"</p>
+                                <div className="flex flex-col md:flex-row-reverse items-start gap-6 mb-8 border-b border-stone-900 pb-8 text-right">
+                                    <div className="p-4 bg-black border border-red-500/30 text-red-500 rounded-full shrink-0"><ReiIcon size={24} /></div>
+                                    <div className="space-y-2 flex-1">
+                                    <h3 className="text-3xl md:text-4xl font-black text-red-500 italic leading-none">{pilar.rei.nome}</h3>
+                                    <p className="text-red-400/80 text-sm italic">"{redactText(pilar.rei.frase)}"</p>
+                                    <div className="text-[10px] uppercase font-black tracking-widest text-red-900 mt-2">{pilar.rei.titulo}</div>
                                     </div>
                                 </div>
                                 ) : renderLocked(pilar.rei.id)}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
                                 {pilar.rei.demonios.map(d => isUnlocked(d.id) ? (
-                                    <div key={d.id} className="p-4 bg-black/40 rounded border border-red-500/20 text-center hover:border-red-500/30 transition-colors relative group">
-                                    <div className="absolute top-2 left-2 opacity-20 group-hover:opacity-100 transition-opacity text-red-500"><Ghost size={12} /></div>
-                                    <h4 className="text-red-500 font-bold text-sm uppercase mb-1">{d.nome}</h4>
-                                    <p className="text-[9px] text-red-400 uppercase tracking-widest mb-2 font-black">{d.pecado}</p>
-                                    <p className="text-xs text-stone-500 italic mb-3">"{redactText(d.frase)}"</p>
+                                    <div key={d.id} className="p-6 bg-black/40 rounded border border-red-500/20 text-right hover:border-red-500/30 transition-colors">
+                                    <div className="flex flex-row-reverse justify-between items-start mb-2">
+                                        <h4 className="text-red-500 font-bold text-sm uppercase">{d.nome}</h4>
+                                        <span className="text-[8px] border border-red-900/40 px-1.5 py-0.5 rounded text-red-500 font-bold uppercase">{d.alin}</span>
+                                    </div>
+                                    <p className="text-[9px] text-red-400 uppercase tracking-widest mb-3 font-black">{d.pecado}</p>
+                                    <p className="text-xs text-stone-500 italic mb-4 border-r border-red-900/20 pr-2">"{redactText(d.frase)}"</p>
                                     <div className="text-[9px] text-red-400 uppercase font-black space-y-1">
                                         <p>Padroeiro: {d.padroeiro}</p>
                                     </div>
@@ -488,7 +647,7 @@
                     )}
 
                     {activeTab === 'tabela' && (
-                        <div className="bg-[#0c0b0a] border border-stone-800 rounded-sm overflow-hidden p-4 sm:p-10 backdrop-blur-md animate-in fade-in shadow-2xl">
+                        <div className="bg-[#0c0b0a] border border-stone-800 rounded-sm overflow-hidden p-4 sm:p-10 backdrop-blur-md animate-in fade-in shadow-2xl max-w-7xl mx-auto">
                         <div className="w-full overflow-x-auto">
                             <table className="w-full text-left border-collapse min-w-[850px]">
                             <thead>
@@ -547,7 +706,7 @@
                     )}
 
                     {activeTab === 'panteao' && (
-                        <div className="space-y-12 animate-in slide-in-from-bottom duration-700 max-w-5xl mx-auto">
+                        <div className="space-y-12 animate-in slide-in-from-bottom duration-700 max-w-4xl mx-auto">
                         <div className="grid grid-cols-2 gap-4 md:gap-20">
                             <div className="space-y-2">
                                 {isUnlocked('totum') ? (
